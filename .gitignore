@@ -1,0 +1,8 @@
+# Ignore the virtual environment folder
+infosys_py_env/
+
+# Ignore compiled python files
+__pycache__/
+
+# Ignore the local database (Security Best Practice)
+*.db
