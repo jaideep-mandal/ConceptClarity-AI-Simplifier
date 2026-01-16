@@ -1,12 +1,21 @@
-# backend.py
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import sqlite3
 import hashlib
 
 app = FastAPI()
 
-# --- Database Setup (Step 1 requirement) ---
+# --- CORS Configuration (Crucial for Streamlit to talk to FastAPI) ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- Database Setup ---
 def init_db():
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
