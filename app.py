@@ -9,32 +9,11 @@ BACKEND_URL = "http://127.0.0.1:8000"
 
 # --- SCIENTIFIC BACKGROUND GENERATOR ---
 def get_scientific_bg():
-    # This SVG defines the Atoms, DNA, and Flask icons
-    svg_bg = """
-    <svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-        <g fill="none" stroke="#CBD5E1" stroke-width="1.5" opacity="0.6">
-            <circle cx="40" cy="40" r="10"/>
-            <ellipse cx="40" cy="40" rx="25" ry="8" transform="rotate(45 40 40)"/>
-            <ellipse cx="40" cy="40" rx="25" ry="8" transform="rotate(-45 40 40)"/>
-            <path d="M140,130 L150,160 H130 L140,130 V115 H145 V130"/>
-            <path d="M30,140 Q40,150 50,140 T70,140 T90,140"/>
-            <path d="M30,150 Q40,140 50,150 T70,150 T90,150"/>
-            <circle cx="150" cy="40" r="15"/>
-            <path d="M150,55 L150,70"/>
-        </g>
-    </svg>
-    """
-    b64_bg = base64.b64encode(svg_bg.encode("utf-8")).decode("utf-8")
-    
-    return f"""
+    return """
     <style>
-    .stApp {{
-        background-color: #F8FAFC;
-        background-image: url("data:image/svg+xml;base64,{b64_bg}");
-        background-size: 150px 150px;
-        background-repeat: repeat;
-        background-attachment: fixed;
-    }}
+    .stApp {
+        background-color: #06141B;
+    }
     </style>
     """
 
@@ -46,102 +25,165 @@ if 'logged_in' not in st.session_state:
 if 'username' not in st.session_state:
     st.session_state['username'] = ""
 if 'page' not in st.session_state:
-    st.session_state['page'] = "Home"  # Default start page
-
+    st.session_state['page'] = "Home"
 if 'search_performed' not in st.session_state:
     st.session_state['search_performed'] = False
+if 'last_explanation' not in st.session_state:
+    st.session_state['last_explanation'] = ""
 
-# Custom CSS for Password Field and Layout
+# --- CSS Styling ---
 st.markdown("""
 <style>
-    /* Force Light Theme */
-    [data-testid="stAppViewContainer"] {
-        background-color: transparent;
-        color: black;
+    /* 1. Global Background and Text */
+    .stApp {
+        background-color: #06141B;
+        color: #CCD0CF;
     }
     
-    /* Blue Border Container around all input fields */
+    /* 2. Input Fields Styling */
     div[data-baseweb="input"] {
-        border: 2px solid #007bff !important;
-        border-radius: 4px;
+        border: 2px solid #253745 !important;
+        border-radius: 8px;
+        background-color: #9BA6A8 !important;
     }
-    /* Grey Partition Line separating the eye icon in password fields */
-    div[data-baseweb="input"]:has(input[type="password"]) div[role="button"] {
-        border-left: 1px solid #ccc !important;
-        padding-left: 10px;
-        margin-left: 10px;
+    
+    div[data-baseweb="input"] > div {
+        background-color: #9BA6A8 !important;
+    }
+    
+    input {
+        color: #06141B !important;
+        background-color: #9BA6A8 !important;
     }
 
-    /* Shorter and Centered Input Fields */
-    .shorter-input {
-        max-width: 400px;
-        margin: 0 auto;
+    /* 3. Password Field Styling */
+    div[data-baseweb="input"]:has(input[type="password"]) {
+        display: flex !important;
+        align-items: center !important;
+        background-color: #9BA6A8 !important;
+    }
+
+    div[data-baseweb="input"]:has(input[type="password"]) div[role="button"] {
+        border-left: 1px solid #253745 !important;
+        padding-left: 10px;
+        margin-left: 10px;
+        display: flex !important;
+        align-items: center !important;
+        height: 100% !important;
+        background-color: #9BA6A8 !important;
+    }
+    
+    div[data-baseweb="input"]:has(input[type="password"]) svg {
+        fill: #06141B !important;
+        color: #06141B !important;
+    }
+
+    /* Sidebar Toggle */
+    button[kind="header"] {
+        color: white !important;
+        background-color: rgba(0, 0, 0, 0.3) !important;
+        border-radius: 50% !important;
+    }
+    
+    button[kind="header"]:hover {
+        color: #9BA6A8 !important;
+        background-color: rgba(0, 0, 0, 0.5) !important;
+    }
+
+
+    /* 4. Title Box / Header */
+    .title-box { 
+        text-align: center; 
+        margin-bottom: 20px; 
+        position: sticky;
+        top: 0;
+        background-color: rgba(6, 20, 27, 0.8);
+        backdrop-filter: blur(10px);
+        z-index: 999;
+        padding: 15px 0;
+        color: #9BA6A8;
+    }
+
+    /* 5. Buttons Styling */
+    .stButton>button {
+        background-color: #253745 !important;
+        color: #CCD0CF !important;
+        border-radius: 20px !important;
+        border: none !important;
+        padding: 0.5rem 2rem !important;
+        font-weight: bold !important;
+    }
+    
+    .stButton>button:hover {
+        background-color: #4A5C6A !important;
+        color: #CCD0CF !important;
+    }
+
+    /* 6. Cards / Containers */
+    div.stAlert {
+        background-color: #11212D !important;
+        color: #CCD0CF !important;
+        border: 1px solid #253745 !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
 def main():
-    # Centered Title and Subheader for all pages
-    st.markdown("""
-        <div style="text-align: center;">
-            <h1>Concept Clarity</h1>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown("""<div class="title-box"><h1>Concept Clarity</h1></div>""", unsafe_allow_html=True)
 
-    # --- Sidebar Logic with streamlit-option-menu ---
+    # --- Sidebar Logic ---
     with st.sidebar:
         if st.session_state['logged_in']:
-            menu_options = ["Home", "Logout"]
-            menu_icons = ["house", "box-arrow-right"]
+            menu = ["Home", "Logout"]
+            icons = ["house", "box-arrow-right"]
         else:
-            menu_options = ["Home", "Login", "SignUp"]
-            menu_icons = ["house", "person", "person-plus"]
-        
-        # Calculate index for option_menu
-        try:
-            default_index = menu_options.index(st.session_state['page'])
-        except ValueError:
-            default_index = 0
+            menu = ["Home", "Login", "SignUp"]
+            icons = ["house", "person", "person-plus"]
 
-        choice = option_menu(
-            "Menu", 
-            menu_options,
-            icons=menu_icons, 
-            menu_icon="cast", 
-            default_index=default_index,
+        try: def_idx = menu.index(st.session_state['page'])
+        except: def_idx = 0
+
+        choice = option_menu("Menu", menu, icons=icons, default_index=def_idx, 
             styles={
-                "container": {"padding": "5!important", "background-color": "#fafafa"},
-                "icon": {"color": "orange", "font-size": "25px"}, 
-                "nav-link": {"font-size": "16px", "text-align": "left", "margin":"0px", "--hover-color": "#eee"},
-                "nav-link-selected": {"background-color": "#02ab21"},
-            }
-        )
-        
-        # Update session state based on menu selection
+                "container": {"background-color": "#11212D"},
+                "nav-link": {"color": "#CCD0CF", "--hover-color": "#253745"},
+                "nav-link-selected": {"background-color": "#4A5C6A", "color": "#CCD0CF"}
+            })
+
         if choice != st.session_state['page']:
             st.session_state['page'] = choice
             st.rerun()
 
     # --- Page 1: Home ---
     if st.session_state['page'] == "Home":
-        st.markdown("""
-            <div style="text-align: center;">
-                <h3>Simplifying Science for Everyone</h3>
-            </div>
-        """, unsafe_allow_html=True)
+        st.markdown("""<div class="title-box"><h3>Simplifying Science for Everyone</h3></div>""", unsafe_allow_html=True)
         if st.session_state['logged_in']:
             st.write(f"Welcome back, **{st.session_state['username']}**!")
-        
-        # The Search Bar
+
         search_term = st.text_input("Enter a scientific term to get a simplified explanation.")
+
         if st.button("Explain"):
             if search_term:
                 st.session_state['search_performed'] = True
-                st.info(f"AI explanation for {search_term}...")
+
+                # --- NEW: Call Groq Backend ---
+                with st.spinner("Asking AI..."):
+                    try:
+                        resp = requests.post(f"{BACKEND_URL}/explain", json={"term": search_term})
+                        if resp.status_code == 200:
+                            st.session_state['last_explanation'] = resp.json()['explanation']
+                        else:
+                            st.error("Error generating explanation.")
+                    except requests.exceptions.RequestException:
+                        st.error("Backend offline. Is FastAPI running?")
             else:
                 st.warning("Please enter a term.")
-        
-        # Condition for Non-Logged In Users - Only after search
+
+        # Display Result
+        if st.session_state['last_explanation']:
+            st.success(st.session_state['last_explanation'])
+
+        # Guest Nudge
         if not st.session_state['logged_in'] and st.session_state['search_performed']:
             st.info("Want to save your search history?")
             if st.button("Login to Save"):
@@ -150,91 +192,53 @@ def main():
 
     # --- Page 2: Login ---
     elif st.session_state['page'] == "Login":
-        st.markdown("""
-            <div style="text-align: center;">
-                <h3>Login</h3>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        # Centering and shortening login form
-        _, col, _ = st.columns([1, 2, 1])
-        with col:
-            email = st.text_input("Email")
-            password = st.text_input("Password", type='password')
-            
-            if st.button("Login"):
+        st.markdown("""<div class="title-box"><h3>Login</h3></div>""", unsafe_allow_html=True)
+        email = st.text_input("Email")
+        password = st.text_input("Password", type="password")
+        if st.button("Login"):
+            with st.spinner("Logging in..."):
                 try:
-                    payload = {"email": email, "password": password}
-                    response = requests.post(f"{BACKEND_URL}/login", json=payload)
-                    
-                    if response.status_code == 200:
-                        data = response.json()
+                    resp = requests.post(f"{BACKEND_URL}/login", json={"email": email, "password": password})
+                    if resp.status_code == 200:
+                        data = resp.json()
                         st.session_state['logged_in'] = True
                         st.session_state['username'] = data['username']
                         st.session_state['page'] = "Home"
-                        
-                        st.success(f"Login successful! Redirecting...")
+                        st.success("Logged in successfully!")
                         time.sleep(1)
                         st.rerun()
                     else:
-                        st.error("Invalid Email or Password")
-                
-                # CHANGE: Specific exception handling
+                        st.error("Invalid email or password.")
                 except requests.exceptions.RequestException:
-                    st.error("Could not connect to backend. Is FastAPI running?")
-
-            # --- NEW: Create Account Redirect ---
-            st.markdown("---")
-            st.write("Don't have an account?")
-            if st.button("Create New Account"):
-                st.session_state['page'] = "SignUp"
-                st.rerun()
+                    st.error("Backend offline.")
 
     # --- Page 3: SignUp ---
     elif st.session_state['page'] == "SignUp":
-        st.markdown("""
-            <div style="text-align: center;">
-                <h3>Create New Account</h3>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        # Centering and shortening signup form
-        _, col, _ = st.columns([1, 2, 1])
-        with col:
-            new_user = st.text_input("Username")
-            new_email = st.text_input("Email")
-            new_password = st.text_input("Password", type='password')
-
-            if st.button("Register"):
+        st.markdown("""<div class="title-box"><h3>Create Account</h3></div>""", unsafe_allow_html=True)
+        new_user = st.text_input("Username")
+        new_email = st.text_input("Email")
+        new_password = st.text_input("Password", type="password")
+        if st.button("Sign Up"):
+            with st.spinner("Creating account..."):
                 try:
-                    payload = {"username": new_user, "email": new_email, "password": new_password}
-                    response = requests.post(f"{BACKEND_URL}/register", json=payload)
-                    
-                    if response.status_code == 200:
-                        st.success("Account created! Redirecting to Login...")
+                    resp = requests.post(f"{BACKEND_URL}/register", 
+                                        json={"username": new_user, "email": new_email, "password": new_password})
+                    if resp.status_code == 200:
+                        st.success("Account created! Please log in.")
                         time.sleep(1)
                         st.session_state['page'] = "Login"
-                        # Rerun acts like a 'stop', so we don't need code after it
                         st.rerun()
                     else:
-                        st.error(response.json().get('detail', 'Registration failed'))
-                
-                # CHANGE: Only catch connection errors, let the Rerun exception pass through
+                        st.error("Registration failed. Email might already exist.")
                 except requests.exceptions.RequestException:
-                    st.error("Could not connect to backend. Is FastAPI running?")
+                    st.error("Backend offline.")
 
-            # Option to go back to Login
-            st.markdown("---") 
-            if st.button("Back to Login"):
-                st.session_state['page'] = "Login"
-                st.rerun()
-
-    # --- Page 4: Logout ---
+    # --- Logout ---
     elif st.session_state['page'] == "Logout":
         st.session_state['logged_in'] = False
         st.session_state['username'] = ""
-        st.session_state['page'] = "Login"
+        st.session_state['page'] = "Home"
         st.rerun()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
