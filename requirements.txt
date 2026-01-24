@@ -3,3 +3,11 @@ uvicorn
 streamlit
 requests
 pydantic
+
+# Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+# .\infosys_py_env\Scripts\Activate
+
+# uvicorn backend:app --reload
+
+# streamlit run app.py
