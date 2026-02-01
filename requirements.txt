@@ -4,6 +4,8 @@ streamlit
 requests
 pydantic
 
+# cd '.\Project\Infosys Internship Project\'
+
 # Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 # .\infosys_py_env\Scripts\Activate

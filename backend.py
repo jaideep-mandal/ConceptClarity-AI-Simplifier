@@ -1,26 +1,20 @@
-from fastapi import FastAPI, HTTPException, File, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel
 import sqlite3
 import hashlib
 import os
+from fastapi.middleware.cors import CORSMiddleware
 from groq import Groq
 from dotenv import load_dotenv
+import json
 from datetime import datetime
 
-# 1. Load the hidden API key from .env
+# Load environment variables
 load_dotenv()
-api_key = os.getenv("GROQ_API_KEY")
-
-# 2. Check if key exists
-if not api_key:
-    raise ValueError("API Key not found! Make sure you have a .env file with GROQ_API_KEY.")
-
-# 3. Initialize Groq
-client = Groq(api_key=api_key)
 
 app = FastAPI()
 
+# --- CORS Configuration ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,28 +23,78 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Database ---
-def init_db():
-    conn = sqlite3.connect('users.db')
+# --- Groq Client Setup ---
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+if not GROQ_API_KEY:
+    raise ValueError("GROQ_API_KEY is missing in .env file")
+
+client = Groq(api_key=GROQ_API_KEY)
+
+# --- Database Setup & Migration ---
+DB_NAME = "users.db"
+
+def get_db_connection():
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def migrate_db():
+    """
+    Updates the database schema automatically without deleting data.
+    Adds new columns for Milestone 3 features if they don't exist.
+    """
+    conn = get_db_connection()
     c = conn.cursor()
-    # User Table
-    c.execute('CREATE TABLE IF NOT EXISTS userstable(username TEXT, email TEXT, password TEXT)')
-    # History Table (New)
+    
+    # 1. Create tables if they don't exist
     c.execute('''
-        CREATE TABLE IF NOT EXISTS search_history(
+        CREATE TABLE IF NOT EXISTS userstable (
+            username TEXT,
+            email TEXT PRIMARY KEY,
+            password TEXT,
+            complexity_pref TEXT DEFAULT NULL 
+        )
+    ''')
+    
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT,
             term TEXT,
+            category TEXT,
             explanation TEXT,
-            timestamp TEXT
+            extra_content TEXT,
+            complexity_used TEXT,
+            related_terms TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # 2. Check and Add Missing Columns for Existing Tables (Migration Logic)
+    
+    # Check 'userstable' for 'complexity_pref'
+    c.execute("PRAGMA table_info(userstable)")
+    columns = [info[1] for info in c.fetchall()]
+    if 'complexity_pref' not in columns:
+        print("Migrating: Adding 'complexity_pref' to userstable...")
+        c.execute("ALTER TABLE userstable ADD COLUMN complexity_pref TEXT DEFAULT NULL")
+
     conn.commit()
     conn.close()
 
-init_db()
+# Run migration on startup
+migrate_db()
 
-# --- Models ---
+# --- Utility Functions ---
+def make_hashes(password):
+    return hashlib.sha256(str.encode(password)).hexdigest()
+
+def check_hashes(password, hashed_text):
+    if make_hashes(password) == hashed_text:
+        return hashed_text
+    return False
+
+# --- Pydantic Models ---
 class UserRegister(BaseModel):
     username: str
     email: str
@@ -62,123 +106,195 @@ class UserLogin(BaseModel):
 
 class ExplainRequest(BaseModel):
     term: str
+    complexity: str  # 'Basic', 'Intermediate', 'Advanced'
 
-# New Model for Saving History
 class HistoryRequest(BaseModel):
     username: str
     term: str
+    category: str
     explanation: str
+    extra_content: str
+    complexity_used: str
+    related_terms: list 
 
-# --- Helpers ---
-def make_hashes(password):
-    return hashlib.sha256(str.encode(password)).hexdigest()
+class PreferenceRequest(BaseModel):
+    username: str
+    complexity: str
 
-# --- Routes ---
+# --- Auth Endpoints ---
 @app.post("/register")
 def register_user(user: UserRegister):
-    conn = sqlite3.connect('users.db')
+    conn = get_db_connection()
     c = conn.cursor()
-    c.execute('SELECT * FROM userstable WHERE email = ?', (user.email,))
-    if c.fetchone():
+    try:
+        c.execute('SELECT * FROM userstable WHERE email = ?', (user.email,))
+        if c.fetchone():
+            raise HTTPException(status_code=400, detail="Email already registered")
+        
+        hashed_pw = make_hashes(user.password)
+        # Default complexity is NULL until they choose
+        c.execute('INSERT INTO userstable(username, email, password, complexity_pref) VALUES (?,?,?,?)', 
+                  (user.username, user.email, hashed_pw, None))
+        conn.commit()
+        return {"message": "User registered successfully"}
+    finally:
         conn.close()
-        raise HTTPException(status_code=400, detail="Email already registered")
-    
-    hashed_pw = make_hashes(user.password)
-    c.execute('INSERT INTO userstable(username, email, password) VALUES (?,?,?)', 
-              (user.username, user.email, hashed_pw))
-    conn.commit()
-    conn.close()
-    return {"message": "User registered successfully"}
 
 @app.post("/login")
 def login_user(user: UserLogin):
-    conn = sqlite3.connect('users.db')
+    conn = get_db_connection()
     c = conn.cursor()
-    hashed_pw = make_hashes(user.password)
-    c.execute('SELECT * FROM userstable WHERE email = ? AND password = ?', 
-              (user.email, hashed_pw))
-    data = c.fetchone()
-    conn.close()
-    
-    if data:
-        return {"message": "Login successful", "username": data[0]}
-    else:
+    try:
+        c.execute('SELECT * FROM userstable WHERE email = ?', (user.email,))
+        data = c.fetchone()
+        
+        if data:
+            # Check password hash logic
+            # Assuming make_hashes is consistent with registration
+            if data['password'] == make_hashes(user.password):
+                 return {
+                    "username": data['username'],
+                    "email": data['email'],
+                    "complexity_pref": data['complexity_pref']
+                }
+        
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    finally:
+        conn.close()
 
-# --- Voice Endpoint (Strict English) ---
+@app.post("/update_preference")
+def update_preference(req: PreferenceRequest):
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        c.execute('UPDATE userstable SET complexity_pref = ? WHERE username = ?', (req.complexity, req.username))
+        conn.commit()
+        return {"message": "Preference updated"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+# --- AI Logic Endpoints ---
+
+@app.post("/explain")
+def explain_term(request: ExplainRequest):
+    term = request.term
+    complexity = request.complexity
+
+    # 1. Select the Persona based on Complexity
+    if complexity == "Basic":
+        system_prompt = """
+        You are a creative science storyteller for beginners.
+        1. Check if the term is scientific. If NOT, return {"error": "INVALID_TERM"}.
+        2. If YES, return a JSON object with:
+           - "term": The term itself.
+           - "category": (e.g., Physics, Biology).
+           - "explanation": Simple, easy to understand (max 2 sentences).
+           - "extra_content": A short, engaging story with characters (like 'Raju' or 'Professor X') to explain the concept.
+           - "related_terms": A list of 3 simple related terms.
+        """
+    elif complexity == "Intermediate":
+        system_prompt = """
+        You are a practical science tutor.
+        1. Check if the term is scientific. If NOT, return {"error": "INVALID_TERM"}.
+        2. If YES, return a JSON object with:
+           - "term": The term.
+           - "category": Field of science.
+           - "explanation": Detailed standard definition.
+           - "extra_content": A concrete Real-World Scenario or application of this term.
+           - "related_terms": A list of 3 related terms.
+        """
+    else: # Advanced
+        system_prompt = """
+        You are a Research Professor.
+        1. Check if the term is scientific. If NOT, return {"error": "INVALID_TERM"}.
+        2. If YES, return a JSON object with:
+           - "term": The term.
+           - "category": specific academic field.
+           - "explanation": In-depth, technical, academic explanation suitable for a researcher.
+           - "extra_content": "Academic Analysis provided." (or similar brief confirmation).
+           - "related_terms": A list of 3 advanced related terms.
+        """
+
+    try:
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt + " \n IMPORTANT: OUTPUT MUST BE VALID JSON ONLY."},
+                {"role": "user", "content": f"Explain: {term}"}
+            ],
+            model="llama-3.3-70b-versatile",
+            response_format={"type": "json_object"}
+        )
+        
+        response_content = chat_completion.choices[0].message.content
+        data = json.loads(response_content)
+
+        if "error" in data and data["error"] == "INVALID_TERM":
+             raise HTTPException(status_code=400, detail="This doesn't seem to be a scientific term.")
+             
+        return data
+
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="AI output error (Invalid JSON). Try again.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
     try:
-        # Send audio file to Groq Whisper
         transcription = client.audio.transcriptions.create(
-            file=(file.filename, file.file.read()), # Send the file bytes
+            file=(file.filename, file.file.read()),
             model="whisper-large-v3",
             response_format="json",
-            language="en",  # <--- FORCE English output
-            prompt="Scientific terms in English." # <--- Context hint to reduce hallucinations
+            language="en",
+            prompt="Scientific terms in English."
         )
         return {"text": transcription.text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- AI Endpoint ---
-@app.post("/explain")
-def explain_term(request: ExplainRequest):
-    try:
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": """
-                    You are a strict science tutor. 
-                    1. First, check if the user's input is a valid scientific concept (Physics, Chemistry, Biology, Math, Computer Science, Astronomy, etc.).
-                    2. If it is NOT a scientific term (e.g., a celebrity, movie, food, or random nonsense), output EXACTLY and ONLY the string: 'INVALID_TERM'.
-                    3. If it IS scientific, explain it simply and clearly for a student in under 3 sentences.
-                    """
-                },
-                {
-                    "role": "user",
-                    "content": request.term,
-                }
-            ],
-            model="llama-3.3-70b-versatile",
-        )
-        
-        response_text = chat_completion.choices[0].message.content.strip()
-
-        # Check if AI rejected the term
-        if "INVALID_TERM" in response_text:
-            raise HTTPException(status_code=400, detail="This doesn't seem to be a scientific term. Please try again!")
-        
-        return {"explanation": response_text}
-
-    except HTTPException as he:
-        raise he # Re-raise known HTTP errors
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# --- NEW: History Endpoints ---
+# --- History Endpoints ---
 
 @app.post("/save_history")
-def save_history(entry: HistoryRequest):
-    conn = sqlite3.connect('users.db')
+def save_history(req: HistoryRequest):
+    conn = get_db_connection()
     c = conn.cursor()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    c.execute('INSERT INTO search_history(username, term, explanation, timestamp) VALUES (?,?,?,?)',
-              (entry.username, entry.term, entry.explanation, timestamp))
-    conn.commit()
-    conn.close()
-    return {"message": "History saved"}
+    try:
+        related_terms_str = json.dumps(req.related_terms)
+        
+        c.execute('''
+            INSERT INTO history (username, term, category, explanation, extra_content, complexity_used, related_terms, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (req.username, req.term, req.category, req.explanation, req.extra_content, req.complexity_used, related_terms_str, timestamp))
+        conn.commit()
+        return {"message": "History saved"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
 
+# Updated for Pagination: Accepts offset and limit
 @app.get("/get_history/{username}")
-def get_history(username: str):
-    conn = sqlite3.connect('users.db')
+def get_history(username: str, offset: int = 0, limit: int = 10):
+    conn = get_db_connection()
     c = conn.cursor()
-    # Get last 10 searches, newest first
-    c.execute('SELECT term, explanation, timestamp FROM search_history WHERE username = ? ORDER BY id DESC LIMIT 10', (username,))
-    data = c.fetchall()
-    conn.close()
-    
-    # Convert list of tuples to list of dictionaries
-    history_list = [{"term": row[0], "explanation": row[1], "timestamp": row[2]} for row in data]
-    return history_list
+    try:
+        # SQL supports pagination now
+        c.execute('SELECT * FROM history WHERE username = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?', (username, limit, offset))
+        rows = c.fetchall()
+        
+        history_data = []
+        for row in rows:
+            item = dict(row)
+            if item['related_terms']:
+                try:
+                    item['related_terms'] = json.loads(item['related_terms'])
+                except:
+                    item['related_terms'] = []
+            history_data.append(item)
+            
+        return history_data
+    finally:
+        conn.close()
