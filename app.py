@@ -36,6 +36,9 @@ if 'last_result' not in st.session_state:
     st.session_state['last_result'] = None 
 if 'last_search_term' not in st.session_state:
     st.session_state['last_search_term'] = ""
+# --- FIX: Initialize the widget key to match the variable ---
+if 'search_widget' not in st.session_state:
+    st.session_state['search_widget'] = ""
 
 # Initialize complexity_pref to "Basic" by default for Guests
 if 'complexity_pref' not in st.session_state or st.session_state['complexity_pref'] is None:
@@ -52,31 +55,39 @@ st.markdown("""
 <style>
     /* 1. Global Background and Text */
     .stApp {
-        background-color: #06141B;
-        color: #CCD0CF;
+        background: radial-gradient(circle at top right, #0D2029, #06141B);
+        color: #E0E4E3;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
-    
-    /* 2. Unified Input Fields Styling */
-    div[data-baseweb="input"], 
-    div[data-baseweb="input"] > div,
-    input {
-        background-color: #9BA6A8 !important;
-        color: #06141B !important;
-        border-radius: 8px;
-    }
-    
+
+    /* 2. Unified Input Fields Styling - Glassmorphism */
     div[data-baseweb="input"] {
-        border: 2px solid #253745 !important;
+        background-color: rgba(155, 166, 168, 0.1) !important;
+        border: 1px solid rgba(37, 55, 69, 0.5) !important;
+        border-radius: 12px !important;
+        transition: all 0.3s ease;
+        backdrop-filter: blur(5px);
+    }
+
+    div[data-baseweb="input"]:focus-within {
+        border-color: #4A5C6A !important;
+        box-shadow: 0 0 0 2px rgba(74, 92, 106, 0.2);
+    }
+
+    input {
+        background-color: transparent !important;
+        color: #E0E4E3 !important;
+        padding: 12px !important;
     }
 
     /* 3. Password Field & Eye Icon */
     div[data-baseweb="input"]:has(input[type="password"]) div[role="button"] {
-        border-left: 1px solid #253745 !important;
+        border-left: 1px solid rgba(37, 55, 69, 0.5) !important;
         padding-left: 10px;
         background-color: transparent !important;
     }
     div[data-baseweb="input"] svg {
-        fill: #06141B !important;
+        fill: #9BA6A8 !important;
     }
 
     /* 4. Sidebar Toggle Button */
@@ -93,48 +104,70 @@ st.markdown("""
     /* 5. Sticky Header (App Name) */
     .title-box { 
         text-align: center; 
-        margin-bottom: 20px; 
-        padding: 15px 0;
+        margin-bottom: 30px; 
+        padding: 20px 0;
         color: #9BA6A8;
-        background-color: rgba(6, 20, 27, 0.9);
-        border-bottom: 1px solid #253745;
+        background: rgba(6, 20, 27, 0.7);
+        backdrop-filter: blur(15px);
+        border-bottom: 1px solid rgba(37, 55, 69, 0.3);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
     }
 
-    /* 6. Standard Buttons */
+    .title-box h1 {
+        font-weight: 800;
+        letter-spacing: -1px;
+        background: linear-gradient(90deg, #9BA6A8, #CCD0CF);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    /* 12. Standard Buttons & Related Terms - Modern Pill Style */
     .stButton>button {
-        background-color: #253745 !important;
+        background: linear-gradient(135deg, #253745 0%, #11212D 100%) !important;
         color: #CCD0CF !important;
         border-radius: 20px !important;
-        border: none !important;
-        padding: 0.5rem 2rem !important;
-        font-weight: bold !important;
-    }
-    .stButton>button:hover {
-        background-color: #4A5C6A !important;
-        color: #CCD0CF !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        padding: 0.4rem 1.5rem !important;
+        font-weight: 500 !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        letter-spacing: 0.3px;
+        font-size: 0.85rem !important;
+        width: auto !important;
+        min-width: fit-content !important;
+        white-space: nowrap !important;
     }
 
-    /* 7. Alerts & Expanders */
-    div.stAlert, .streamlit-expanderHeader {
-        background-color: #11212D !important;
-        color: #CCD0CF !important;
-        border: 1px solid #253745 !important;
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        background: linear-gradient(135deg, #4A5C6A 0%, #253745 100%) !important;
+    }
+
+    /* 7. Alerts & Cards */
+    div.stAlert, .streamlit-expanderHeader, .user-card {
+        background: rgba(17, 33, 45, 0.4) !important;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(37, 55, 69, 0.3) !important;
+        border-radius: 16px !important;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
     }
     .streamlit-expanderContent {
-        background-color: #06141B !important;
+        background-color: rgba(6, 20, 27, 0.4) !important;
         color: #CCD0CF !important;
-        border: 1px solid #253745 !important;
+        border: 1px solid rgba(37, 55, 69, 0.3) !important;
         border-top: none !important;
+        border-radius: 0 0 16px 16px !important;
     }
 
     /* 8. User Profile Sidebar Card */
     .user-card {
-        background-color: #11212D;
+        background: rgba(17, 33, 45, 0.4) !important;
         padding: 15px;
-        border-radius: 10px;
-        border: 1px solid #253745;
+        border-radius: 16px;
+        border: 1px solid rgba(37, 55, 69, 0.3);
         margin-top: 20px;
         text-align: center;
+        backdrop-filter: blur(10px);
     }
     .user-card h4 { margin: 0; color: #CCD0CF; font-size: 16px; }
     .user-card p { margin: 5px 0 0 0; color: #9BA6A8; font-size: 12px; }
@@ -148,30 +181,66 @@ st.markdown("""
     div[data-testid="stColumn"]:nth-of-type(2) > div > div > div {
         transform: translateY(0px);
     }
-            
+
     /* 10. REFINED MIC ICON STYLING */
     div[data-testid="stColumn"]:nth-of-type(2) iframe {
         filter: invert(1) hue-rotate(180deg) brightness(1.2) !important;
-        width: 42px !important;
-        height: 42px !important;
+        width: 41px !important;
+        height: 38px !important;
         margin: auto !important;
         display: block !important;
         border-radius: 8px !important;
         border: none !important;
         outline: none !important;
         box-shadow: none !important;
+        transition: none !important;
     }
-    
-    /* 11. Custom Radio Button Styling */
+    div[data-testid="stColumn"]:nth-of-type(2) iframe:focus,
+    div[data-testid="stColumn"]:nth-of-type(2) iframe:active,
+    div[data-testid="stColumn"]:nth-of-type(2) iframe:hover {
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+    }
+
+    /* 11. Custom Radio Button Styling - Modern Segmented Control */
     div[role="radiogroup"] {
+        background-color: rgba(17, 33, 45, 0.6);
+        padding: 6px;
+        border-radius: 14px;
+        border: 1px solid rgba(37, 55, 69, 0.4);
         display: flex;
         justify-content: center;
         gap: 20px;
-        background-color: #11212D;
-        padding: 10px;
-        border-radius: 10px;
         margin-bottom: 15px;
-        border: 1px solid #253745;
+    }
+
+    /* 12. Flexbox for Related Terms (Dynamic Wrap) */
+    .related-terms-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+        justify-content: flex-start;
+    }
+
+    /* Target the streamlit button container inside our flex wrapper */
+    .related-terms-container div[data-testid="stButton"] {
+        width: fit-content !important;
+        margin-bottom: 8px;
+    }
+
+    /* Target button itself to ensure it doesn't stretch */
+    .related-terms-container button {
+        width: auto !important;
+        min-width: fit-content !important;
+        padding: 6px 18px !important;
+    }
+
+    /* 13. Sidebar Option Menu Styling */
+    .nav-link {
+        border-radius: 10px !important;
+        margin: 4px 0 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -186,6 +255,11 @@ def update_pref_in_db():
             })
         except:
             pass
+
+# --- FIX: New Callback Function to Sync Input ---
+def update_search_box():
+    # Sync the widget's value to our main state variable
+    st.session_state['last_search_term'] = st.session_state.search_widget
 
 def main():
     # --- APP NAME ---
@@ -234,15 +308,50 @@ def main():
         
         col1, col2 = st.columns([6, 1], vertical_alignment="center") 
 
-        with col1:
-            search_term = st.text_input("Search", key="last_search_term", label_visibility="collapsed")
-
+        # STEP 1: Handle Microphone FIRST (Must be before Text Input to avoid crash)
         with col2:
             audio_data = mic_recorder(
                 start_prompt="🎙️", 
                 stop_prompt="🟥", 
                 just_once=True,
                 key='recorder'
+            )
+            
+            if audio_data:
+                with st.spinner("Processing voice..."):
+                    try:
+                        audio_bytes = audio_data['bytes']
+                        audio_file = io.BytesIO(audio_bytes)
+                        audio_file.name = "audio.wav"
+                        
+                        files = {"file": ("audio.wav", audio_file, "audio/wav")}
+                        
+                        resp = requests.post(f"{BACKEND_URL}/transcribe", files=files)
+                        if resp.status_code == 200:
+                            transcribed_text = resp.json()['text']
+                            if transcribed_text != st.session_state.get('last_search_term', ""):
+                                # Update the main variable
+                                st.session_state['last_search_term'] = transcribed_text
+                                # Force-update the widget state
+                                st.session_state['search_widget'] = transcribed_text 
+                                
+                                # FIX: Set to False so it updates the text BUT DOES NOT auto-explain
+                                st.session_state['search_performed'] = False 
+                                
+                                st.rerun() 
+                        else:
+                            st.error("Audio error.")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+        # STEP 2: Draw Text Input SECOND
+        with col1:
+            st.text_input(
+                "Search", 
+                # value=st.session_state['last_search_term'], <--- REMOVED TO FIX WARNING
+                key="search_widget",          
+                on_change=update_search_box,  
+                label_visibility="collapsed"
             )
 
         # --- Complexity Toggle ---
@@ -263,32 +372,17 @@ def main():
 
         # --- Logic Handling ---
         
-        # 1. Handle Audio Input
-        if audio_data:
-            with st.spinner("Processing voice..."):
-                try:
-                    audio_bytes = audio_data['bytes']
-                    audio_file = io.BytesIO(audio_bytes)
-                    audio_file.name = "audio.wav"
-                    
-                    files = {"file": ("audio.wav", audio_file, "audio/wav")}
-                    
-                    resp = requests.post(f"{BACKEND_URL}/transcribe", files=files)
-                    if resp.status_code == 200:
-                        transcribed_text = resp.json()['text']
-                        if transcribed_text != st.session_state.get('last_search_term', ""):
-                            st.session_state['last_search_term'] = transcribed_text
-                            st.session_state['search_performed'] = True
-                            st.rerun() 
-                    else:
-                        st.error("Audio error.")
-                except Exception as e:
-                    st.error(f"Error: {e}")
+        # --- FIX: Define search_term variable (Required because we removed 'value=' from the widget)
+        search_term = st.session_state['last_search_term']
+
+        # Note: We removed "# 1. Handle Audio Input" from here because 
+        # it is now handled correctly inside the 'col2' block above.
 
         # 2. Explain Trigger
         st.write("") 
         explain_clicked = st.button("Explain")
         
+        # Now 'search_term' is defined, so this line works perfectly
         should_explain = explain_clicked or (st.session_state['search_performed'] and search_term)
 
         if should_explain:
@@ -349,28 +443,149 @@ def main():
             
             # Use the stored complexity from the result to determine the title style
             result_mode = res.get('complexity', 'Basic')
+
+            # --- Feedback Logic Helper ---
+            # We construct a unique key to store the Feedback ID for this specific search result
+            # e.g., "fb_id_gravity_Basic"
+            current_fb_id_key = f"fb_id_{res['term']}_{res.get('complexity', 'Basic')}"
+
+            def send_feedback_to_api(rating_val, comment_text=""):
+                # Prepare payload
+                fb_user = st.session_state['username'] if st.session_state['logged_in'] else "Guest"
+                
+                # Check if we already have an ID for this session (meaning we are updating)
+                existing_id = st.session_state.get(current_fb_id_key, None)
+                
+                payload = {
+                    "id": existing_id, # If None, backend creates new. If exists, backend updates.
+                    "username": fb_user,
+                    "term": res['term'],
+                    "complexity": res.get('complexity', 'Basic'),
+                    "category": res.get('category', 'General'),
+                    "explanation": res['explanation'],
+                    "extra_content": res['extra_content'],
+                    "rating": rating_val,
+                    "comment": comment_text
+                }
+
+                try:
+                    resp = requests.post(f"{BACKEND_URL}/submit_feedback", json=payload)
+                    if resp.status_code == 200:
+                        # Save the ID returned by backend so next time we update this same row
+                        new_id = resp.json().get('id')
+                        st.session_state[current_fb_id_key] = new_id
+                        return True
+                    else:
+                        st.error(f"Error: {resp.text}")
+                except Exception as e:
+                    st.error(f"Connection Error: {e}")
+                return False
             
             if result_mode == "Basic":
                 st.info(f"**📚 Story Time:**\n\n{res['extra_content']}")
             elif result_mode == "Intermediate":
                 st.success(f"**🌍 Real World Scenario:**\n\n{res['extra_content']}")
 
-            # --- RELATED TERMS ---
+            # --- NEW: Customer Feedback Section (Disappearing Form) ---
+            
+            # 1. Create unique keys for this specific search result
+            current_fb_id_key = f"fb_id_{res['term']}_{res.get('complexity', 'Basic')}"
+            fb_submitted_key = f"fb_done_{res['term']}_{res.get('complexity', 'Basic')}"
+
+            # 2. Helper to send data (Inserts or Updates based on ID)
+            def send_feedback_to_api(rating_val, comment_text=""):
+                fb_user = st.session_state['username'] if st.session_state['logged_in'] else "Guest"
+                existing_id = st.session_state.get(current_fb_id_key, None)
+                
+                payload = {
+                    "id": existing_id, 
+                    "username": fb_user,
+                    "term": res['term'],
+                    "complexity": res.get('complexity', 'Basic'),
+                    "category": res.get('category', 'General'),
+                    "explanation": res['explanation'],
+                    "extra_content": res['extra_content'],
+                    "rating": rating_val,
+                    "comment": comment_text
+                }
+
+                try:
+                    resp = requests.post(f"{BACKEND_URL}/submit_feedback", json=payload)
+                    if resp.status_code == 200:
+                        new_id = resp.json().get('id')
+                        st.session_state[current_fb_id_key] = new_id
+                        return True
+                    else:
+                        st.error(f"Error: {resp.text}")
+                except Exception as e:
+                    st.error(f"Connection Error: {e}")
+                return False
+
+            # 3. LOGIC: If submitted, show "Thanks". If not, show Form.
+            if st.session_state.get(fb_submitted_key, False):
+                 # --- VIEW A: SUCCESS MESSAGE ---
+                 st.success("✅ **Thanks for your feedback!**")
+                 
+            else:
+                # --- VIEW B: FEEDBACK FORM ---
+                with st.expander("Rate this explanation", expanded=True):
+                    fb_col1, fb_col2 = st.columns([3, 1], vertical_alignment="bottom")
+                    
+                    with fb_col1:
+                        # STAR RATING (Immediate Save)
+                        star_key = f"star_widget_{res['term']}"
+                        
+                        def on_star_change():
+                            val = st.session_state[star_key]
+                            if val is not None:
+                                send_feedback_to_api(val + 1, "") 
+                                st.toast("Rating saved! ⭐") 
+
+                        st.feedback("stars", key=star_key, on_change=on_star_change)
+                        
+                        # COMMENT BOX
+                        fb_comment = st.text_input(
+                            "Comment (Optional)", 
+                            placeholder="Tell us more...", 
+                            key=f"comment_{res['term']}"
+                        )
+                    
+                    with fb_col2:
+                        # SUBMIT BUTTON (Finalize & Close)
+                        if st.button("Submit Comment", key=f"btn_fb_{res['term']}"):
+                            current_stars = st.session_state.get(star_key)
+                            rating_to_send = (current_stars + 1) if current_stars is not None else 5
+                            
+                            if send_feedback_to_api(rating_to_send, fb_comment):
+                                # Mark as done so the form disappears
+                                st.session_state[fb_submitted_key] = True
+                                st.rerun()
+
+            # --- RELATED TERMS (Optimized Flow) ---
             st.write("### 🔗 Related Terms")
-            cols = st.columns(len(res['related_terms']))
-            
-            def update_search(t):
-                st.session_state['last_search_term'] = t
-                st.session_state['search_performed'] = False
-                st.session_state['last_result'] = None
-            
-            for idx, term in enumerate(res['related_terms']):
-                cols[idx].button(
-                    term, 
-                    key=f"rel_{term}", 
-                    on_click=update_search, 
-                    args=(term,)
-                )
+
+            if res['related_terms']:
+                def update_search(t):
+                    st.session_state['last_search_term'] = t
+                    st.session_state['search_widget'] = t 
+                    st.session_state['search_performed'] = False
+                    st.session_state['last_result'] = None
+
+                # Create a horizontal flow of buttons that wrap naturally
+                st.markdown('<div class="related-terms-container">', unsafe_allow_html=True)
+                
+                # Using st.button with use_container_width=False and CSS flex container
+                # is the most robust way to handle varying lengths in Streamlit
+                # We wrap each button in a div to control its flex behavior
+                for term in res['related_terms']:
+                    st.button(
+                        term, 
+                        key=f"rel_{term}", 
+                        on_click=update_search, 
+                        args=(term,),
+                        use_container_width=False
+                    )
+                st.markdown('</div>', unsafe_allow_html=True)
 
         # Guest Nudge
         if not st.session_state['logged_in'] and st.session_state['last_result']:

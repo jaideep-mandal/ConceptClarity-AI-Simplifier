@@ -8,6 +8,7 @@ from groq import Groq
 from dotenv import load_dotenv
 import json
 from datetime import datetime
+from typing import Optional # Make sure to import Optional
 
 # Load environment variables
 load_dotenv()
@@ -70,6 +71,22 @@ def migrate_db():
         )
     ''')
 
+    # --- NEW: Feedback Table with ALL fields ---
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
+            term TEXT,
+            complexity TEXT,
+            category TEXT,         -- New
+            explanation TEXT,      -- New
+            extra_content TEXT,    -- New
+            rating INTEGER,
+            comment TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
     # 2. Check and Add Missing Columns for Existing Tables (Migration Logic)
     
     # Check 'userstable' for 'complexity_pref'
@@ -120,6 +137,18 @@ class HistoryRequest(BaseModel):
 class PreferenceRequest(BaseModel):
     username: str
     complexity: str
+
+# --- NEW: Feedback Model ---
+class FeedbackRequest(BaseModel):
+    id: Optional[int] = None  # If provided, we UPDATE. If None, we INSERT.
+    username: str
+    term: str
+    complexity: str
+    category: str       # New
+    explanation: str    # New
+    extra_content: str  # New
+    rating: int
+    comment: Optional[str] = ""
 
 # --- Auth Endpoints ---
 @app.post("/register")
@@ -253,6 +282,36 @@ async def transcribe_audio(file: UploadFile = File(...)):
         return {"text": transcription.text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- Feedback Endpoint (Smart Update) ---
+@app.post("/submit_feedback")
+def submit_feedback(req: FeedbackRequest):
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        # Scenario 1: Update existing feedback (User added a comment to an existing rating)
+        if req.id:
+            c.execute('''
+                UPDATE feedback 
+                SET rating = ?, comment = ? 
+                WHERE id = ?
+            ''', (req.rating, req.comment, req.id))
+            conn.commit()
+            return {"message": "Feedback updated", "id": req.id}
+        
+        # Scenario 2: Create new feedback (User just clicked a star)
+        else:
+            c.execute('''
+                INSERT INTO feedback (username, term, complexity, category, explanation, extra_content, rating, comment) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (req.username, req.term, req.complexity, req.category, req.explanation, req.extra_content, req.rating, req.comment))
+            conn.commit()
+            return {"message": "Feedback saved", "id": c.lastrowid} # Return ID so frontend can update later
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
 
 # --- History Endpoints ---
 
