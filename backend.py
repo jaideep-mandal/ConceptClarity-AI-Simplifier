@@ -29,6 +29,10 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
     raise ValueError("GROQ_API_KEY is missing in .env file")
 
+# --- NEW: Admin Environment Variables ---
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+
 client = Groq(api_key=GROQ_API_KEY)
 
 # --- Database Setup & Migration ---
@@ -56,6 +60,25 @@ def migrate_db():
             complexity_pref TEXT DEFAULT NULL 
         )
     ''')
+
+    # --- NEW: Admin Table ---
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS admintable (
+            username TEXT,
+            email TEXT PRIMARY KEY,
+            password TEXT
+        )
+    ''')
+    # UPDATED: Seed an admin user using Environment Variables
+    c.execute('SELECT COUNT(*) FROM admintable')
+    if c.fetchone()[0] == 0:
+        if ADMIN_EMAIL and ADMIN_PASSWORD:
+            admin_hashed_pw = hashlib.sha256(str.encode(ADMIN_PASSWORD)).hexdigest()
+            c.execute('INSERT INTO admintable (username, email, password) VALUES (?, ?, ?)',
+                      ("AdminUser", ADMIN_EMAIL, admin_hashed_pw))
+            print("Admin account seeded from environment variables.")
+        else:
+            print("Warning: Admin credentials not found in .env file.")
     
     c.execute('''
         CREATE TABLE IF NOT EXISTS history (
@@ -174,18 +197,30 @@ def login_user(user: UserLogin):
     conn = get_db_connection()
     c = conn.cursor()
     try:
+        hashed_pw = make_hashes(user.password)
+        
+        # 1. Check userstable
         c.execute('SELECT * FROM userstable WHERE email = ?', (user.email,))
         data = c.fetchone()
         
-        if data:
-            # Check password hash logic
-            # Assuming make_hashes is consistent with registration
-            if data['password'] == make_hashes(user.password):
-                 return {
-                    "username": data['username'],
-                    "email": data['email'],
-                    "complexity_pref": data['complexity_pref']
-                }
+        if data and data['password'] == hashed_pw:
+            return {
+                "username": data['username'],
+                "email": data['email'],
+                "complexity_pref": data['complexity_pref'],
+                "role": "user"
+            }
+        
+        # 2. Check admintable
+        c.execute('SELECT * FROM admintable WHERE email = ?', (user.email,))
+        admin_data = c.fetchone()
+        
+        if admin_data and admin_data['password'] == hashed_pw:
+            return {
+                "username": admin_data['username'],
+                "email": admin_data['email'],
+                "role": "admin"
+            }
         
         raise HTTPException(status_code=401, detail="Invalid email or password")
     finally:
@@ -334,6 +369,77 @@ def save_history(req: HistoryRequest):
     finally:
         conn.close()
 
+# --- Admin Analytics Endpoints ---
+@app.get("/admin/stats")
+def get_admin_stats():
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        c.execute('SELECT COUNT(*) FROM userstable')
+        total_users = c.fetchone()[0]
+        
+        c.execute('SELECT COUNT(*) FROM history')
+        total_searches = c.fetchone()[0]
+        
+        # Calculate Real Average Rating
+        c.execute('SELECT AVG(rating) FROM feedback')
+        avg_rating = c.fetchone()[0]
+        # Handle case where there is no feedback yet
+        avg_rating = round(avg_rating, 1) if avg_rating else 0.0
+        
+        return {
+            "total_users": total_users,
+            "total_searches": total_searches,
+            "avg_rating": avg_rating
+        }
+    finally:
+        conn.close()
+@app.get("/admin/trends")
+def get_admin_trends():
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        # Most searched terms
+        c.execute('''
+            SELECT term, COUNT(*) as count 
+            FROM history 
+            GROUP BY term 
+            ORDER BY count DESC 
+            LIMIT 5
+        ''')
+        top_terms = [{"term": row[0], "count": row[1]} for row in c.fetchall()]
+        
+        # Complexity distribution
+        c.execute('''
+            SELECT complexity_used, COUNT(*) as count 
+            FROM history 
+            GROUP BY complexity_used
+        ''')
+        complexity_dist = {row[0]: row[1] for row in c.fetchall()}
+        
+        return {
+            "top_terms": top_terms,
+            "complexity_distribution": complexity_dist
+        }
+    finally:
+        conn.close()
+@app.get("/admin/users")
+def get_admin_users():
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        # List users with their search counts
+        c.execute('''
+            SELECT u.username, u.email, COUNT(h.id) as search_count
+            FROM userstable u
+            LEFT JOIN history h ON u.username = h.username
+            GROUP BY u.username, u.email
+        ''')
+        users = [{"username": row[0], "email": row[1], "search_count": row[2]} for row in c.fetchall()]
+        return users
+    finally:
+        conn.close()
+
 # Updated for Pagination: Accepts offset and limit
 @app.get("/get_history/{username}")
 def get_history(username: str, offset: int = 0, limit: int = 10):
@@ -355,5 +461,62 @@ def get_history(username: str, offset: int = 0, limit: int = 10):
             history_data.append(item)
             
         return history_data
+    finally:
+        conn.close()
+
+# --- Admin Role Management Endpoints ---
+
+@app.get("/admin/list")
+def list_admins():
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        c.execute('SELECT username, email FROM admintable')
+        return [{"username": row[0], "email": row[1]} for row in c.fetchall()]
+    finally:
+        conn.close()
+
+@app.post("/admin/add")
+def add_new_admin(req: UserRegister): # Reuse UserRegister model
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        hashed_pw = hashlib.sha256(str.encode(req.password)).hexdigest()
+        c.execute('INSERT INTO admintable (username, email, password) VALUES (?, ?, ?)',
+                  (req.username, req.email, hashed_pw))
+        conn.commit()
+        return {"message": "Admin added successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Admin already exists or invalid data.")
+    finally:
+        conn.close()
+
+@app.delete("/admin/delete/{email}")
+def delete_admin(email: str):
+    # Security: Prevent deleting the seed admin from .env
+    if email == os.getenv("ADMIN_EMAIL"):
+        raise HTTPException(status_code=403, detail="The primary seed admin cannot be deleted.")
+        
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        c.execute('DELETE FROM admintable WHERE email = ?', (email,))
+        conn.commit()
+        return {"message": "Admin deleted"}
+    finally:
+        conn.close()
+
+@app.get("/admin/is_super/{email}")
+def check_is_super_admin(email: str):
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        # Get the email of the very first admin (ordered by hidden rowid)
+        c.execute('SELECT email FROM admintable ORDER BY rowid ASC LIMIT 1')
+        first_admin = c.fetchone()
+        
+        if first_admin and first_admin[0] == email:
+            return {"is_super": True}
+        return {"is_super": False}
     finally:
         conn.close()

@@ -7,4 +7,5 @@ __pycache__/
 # Ignore the local database (Security Best Practice)
 *.db
 
+# Ignore Environment Variables
 .env

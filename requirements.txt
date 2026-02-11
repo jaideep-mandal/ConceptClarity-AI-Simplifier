@@ -3,6 +3,8 @@ uvicorn
 streamlit
 requests
 pydantic
+plotly
+pandas
 
 # cd '.\Project\Infosys Internship Project\'
 

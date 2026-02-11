@@ -5,6 +5,8 @@ import time
 from streamlit_mic_recorder import mic_recorder
 import io
 import json
+import plotly.express as px
+import pandas as pd
 
 # Connection to your FastAPI Backend
 BACKEND_URL = "http://127.0.0.1:8000"
@@ -28,6 +30,8 @@ if 'username' not in st.session_state:
     st.session_state['username'] = ""
 if 'email' not in st.session_state:
     st.session_state['email'] = "" 
+if 'role' not in st.session_state:
+    st.session_state['role'] = "user"
 if 'page' not in st.session_state:
     st.session_state['page'] = "Home"
 if 'search_performed' not in st.session_state:
@@ -268,8 +272,12 @@ def main():
     # --- Sidebar Logic ---
     with st.sidebar:
         if st.session_state['logged_in']:
-            menu = ["Home", "History", "Logout"]
-            icons = ["house", "clock-history", "box-arrow-right"]
+            if st.session_state.get('role') == "admin":
+                menu = ["Admin Dashboard", "User Management", "Logout"]
+                icons = ["speedometer2", "people", "box-arrow-right"]
+            else:
+                menu = ["Home", "History", "Logout"]
+                icons = ["house", "clock-history", "box-arrow-right"]
         else:
             menu = ["Home", "Login", "SignUp"]
             icons = ["house", "person", "person-plus"]
@@ -583,7 +591,7 @@ def main():
                         key=f"rel_{term}", 
                         on_click=update_search, 
                         args=(term,),
-                        use_container_width=False
+                        width="content"
                     )
                 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -636,7 +644,237 @@ def main():
         else:
             st.info("No history found.")
 
-    # --- Page 3: Login ---
+    # --- Page 3: Admin Dashboard ---
+    elif st.session_state['page'] == "Admin Dashboard":
+        st.markdown("<h3>Admin Dashboard</h3>", unsafe_allow_html=True)
+
+        # 1. Check if current user is Super Admin (First Admin)
+        current_email = st.session_state.get('email')
+        is_super = False
+        try:
+            resp = requests.get(f"{BACKEND_URL}/admin/is_super/{current_email}")
+            if resp.status_code == 200:
+                is_super = resp.json().get('is_super', False)
+        except:
+            pass # Default to False if error
+
+        # 2. Only show Management Tools if Super Admin
+        if is_super:
+            with st.expander("🛠️ System Admin Management (Super Admin Only)", expanded=False):
+                m_col1, m_col2 = st.columns([2, 1])
+                
+                with m_col1:
+                    st.write("#### Existing Admins")
+                    try:
+                        # Fetch fresh list
+                        resp = requests.get(f"{BACKEND_URL}/admin/list")
+                        if resp.status_code == 200:
+                            admin_list = resp.json()
+                            if admin_list:
+                                for adm in admin_list:
+                                    a_col1, a_col2 = st.columns([3, 1])
+                                    a_col1.write(f"**{adm['username']}** ({adm['email']})")
+                                    
+                                    # Prevent deleting self (Current Super Admin)
+                                    if adm['email'] != current_email:
+                                        if a_col2.button("🗑️", key=f"del_{adm['email']}"):
+                                            delete_success = False # 1. Init Flag
+                                            try:
+                                                d_resp = requests.delete(f"{BACKEND_URL}/admin/delete/{adm['email']}")
+                                                if d_resp.status_code == 200:
+                                                    st.toast(f"Deleted {adm['username']}")
+                                                    delete_success = True # 2. Set Flag
+                                                else:
+                                                    st.error("Delete failed on backend.")
+                                            except Exception as e:
+                                                st.error(f"Connection Error: {e}")
+                                            
+                                            # 3. Rerun OUTSIDE the try/except block
+                                            if delete_success:
+                                                time.sleep(0.5)
+                                                st.rerun()
+                            else:
+                                st.info("No other admins found.")
+                        else:
+                            st.error("Could not load admin list.")
+                    except Exception as e:
+                        st.error(f"Error loading list: {e}")
+
+                with m_col2:
+                    st.write("#### Add New Admin")
+                    # Using st.form automatically handles the "Widget State" error
+                    # and clears the fields upon a successful submit.
+                    with st.form("add_admin_form", clear_on_submit=True):
+                        new_adm_user = st.text_input("Username")
+                        new_adm_email = st.text_input("Email")
+                        new_adm_pass = st.text_input("Password", type="password")
+                        submit_button = st.form_submit_button("Create Admin Account", width="stretch")
+                        
+                        if submit_button:
+                            if new_adm_user and new_adm_email and new_adm_pass:
+                                try:
+                                    resp = requests.post(f"{BACKEND_URL}/admin/add", 
+                                                    json={"username": new_adm_user, 
+                                                            "email": new_adm_email, 
+                                                            "password": new_adm_pass})
+                                    if resp.status_code == 200:
+                                        st.success("Admin Added!")
+                                        # We use a slight delay before rerun so the user sees the success message
+                                        time.sleep(1)
+                                        st.rerun()
+                                    else:
+                                        st.error(f"Failed: {resp.text}")
+                                except Exception as e:
+                                    st.error(f"Connection Error: {e}")
+            st.write("---") # Visual separator
+        
+        try:
+            # 1. Fetch Stats for Metric Tiles
+            stats = requests.get(f"{BACKEND_URL}/admin/stats").json()
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown(f"""
+                    <div class="user-card" style="margin-top:0;">
+                        <h4 style="font-size: 1.2rem;">Total Searches</h4>
+                        <p style="font-size: 2rem; color: #CCD0CF; font-weight: bold;">{stats.get('total_searches', 0)}</p>
+                    </div>
+                """, unsafe_allow_html=True)
+            with col2:
+                # Use real data from the stats response
+                avg_val = stats.get('avg_rating', 0)
+                st.markdown(f"""
+                    <div class="user-card" style="margin-top:0; border-top: 4px solid #4CAF50;">
+                        <h4 style="font-size: 1.1rem;">Avg Rating</h4>
+                        <p style="font-size: 2.2rem; color: #4CAF50; font-weight: bold;">{avg_val} ⭐</p>
+                    </div>
+                """, unsafe_allow_html=True)
+            with col3:
+                st.markdown(f"""
+                    <div class="user-card" style="margin-top:0;">
+                        <h4 style="font-size: 1.2rem;">Active Users</h4>
+                        <p style="font-size: 2rem; color: #CCD0CF; font-weight: bold;">{stats.get('total_users', 0)}</p>
+                    </div>
+                """, unsafe_allow_html=True)
+            st.write("")
+            
+            # 2. Fetch Trends for Charts
+            trends = requests.get(f"{BACKEND_URL}/admin/trends").json()
+            chart_col1, chart_col2 = st.columns(2)
+            
+            with chart_col1:
+                st.write("### 📈 Top Searches")
+                top_terms_data = trends.get('top_terms', [])
+                if top_terms_data:
+                    df_terms = pd.DataFrame(top_terms_data)
+                    fig_terms = px.bar(
+                        df_terms, x='count', y='term', orientation='h',
+                        title='Top 10 Scientific Terms',
+                        color='count', color_continuous_scale='Blues',
+                        template='plotly_dark'
+                    )
+                    fig_terms.update_layout(
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        showlegend=False
+                    )
+                    st.plotly_chart(fig_terms, width="stretch")
+                else:
+                    st.info("No search data yet.")
+            with chart_col2:
+                st.write("### 🎯 Complexity Distribution")
+                dist = trends.get('complexity_distribution', {})
+                if dist:
+                    df_dist = pd.DataFrame([{'Complexity': k, 'Count': v} for k, v in dist.items()])
+                    fig_pie = px.pie(
+                        df_dist, values='Count', names='Complexity',
+                        title='User Preferences',
+                        color_discrete_sequence=px.colors.sequential.Tealgrn,
+                        template='plotly_dark',
+                        hole=0.4
+                    )
+                    fig_pie.update_layout(
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)'
+                    )
+                    st.plotly_chart(fig_pie, width="stretch")
+                else:
+                    st.info("No complexity data yet.")
+            # 3. User Engagement & Guest vs Registered
+            st.write("---")
+            eng_col1, eng_col2 = st.columns(2)
+            
+            users_data = requests.get(f"{BACKEND_URL}/admin/users").json()
+            if users_data:
+                df_users = pd.DataFrame(users_data)
+            
+            with eng_col1:
+                    st.write("### 👤 User Engagement")
+                    fig_eng = px.bar(
+                        df_users.sort_values('search_count', ascending=False).head(10),
+                        x='username', y='search_count',
+                        title='Most Visiting Users',
+                        color='search_count',
+                        template='plotly_dark'
+                    )
+                    fig_eng.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                    st.plotly_chart(fig_eng, width="stretch")
+                
+            with eng_col2:
+                st.write("### 🔑 Guest vs Registered")
+                # In this app, we don't have "Guest" user in userstable, 
+                # but history might have searches from guests if we implemented it that way.
+                # For now, let's assume we compare users with 0 searches vs >0 or similar logic
+                # Or check if history has usernames that aren't in userstable (though history currently requires login)
+                # Let's mock the "Guest" count for now based on a logic or just show user breakdown
+                registered_count = len(df_users[df_users['username'] != 'Guest'])
+                guest_count = 5 # Mock placeholder for now
+                    
+                df_auth = pd.DataFrame([
+                    {'Type': 'Registered', 'Count': registered_count},
+                    {'Type': 'Guest', 'Count': guest_count}
+                ])
+                fig_donut = px.pie(
+                    df_auth, values='Count', names='Type',
+                    title='Access Type Comparison',
+                    hole=0.6,
+                    color_discrete_sequence=['#4A5C6A', '#253745'],
+                    template='plotly_dark'
+                )
+                fig_donut.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_donut, width="stretch")
+                
+        except Exception as e:
+            st.error(f"Error loading admin visuals: {e}")
+
+    # --- Page 4: User Management ---
+    elif st.session_state['page'] == "User Management":
+        st.markdown("<h3>User Management</h3>", unsafe_allow_html=True)
+        try:
+            users = requests.get(f"{BACKEND_URL}/admin/users").json()
+            if users:
+                df_users = pd.DataFrame(users)
+                # Apply custom CSS to the table through markdown if needed, but st.dataframe is cleaner
+                st.write("### 👥 Registered Users")
+                st.dataframe(
+                    df_users,
+                    column_config={
+                        "username": "Username",
+                        "email": "Email Address",
+                        "search_count": st.column_config.NumberColumn(
+                            "Total Searches",
+                            help="Total number of searches performed by this user",
+                            format="%d 🔍"
+                        )
+                    },
+                    hide_index=True,
+                    width="stretch"  # <--- ADD THIS
+                )
+            else:
+                st.info("No users registered yet.")
+        except Exception as e:
+            st.error(f"Error loading users: {e}")
+    # --- Page 5: Login ---
     elif st.session_state['page'] == "Login":
         st.markdown("<h3>Login</h3>", unsafe_allow_html=True)
         email = st.text_input("Email")
@@ -654,28 +892,31 @@ def main():
                         st.session_state['username'] = data['username']
                         st.session_state['email'] = email
                         
-                        # 1. Save Preference
-                        st.session_state['complexity_pref'] = guest_pref_to_save
-                        update_pref_in_db() 
-                        
-                        # 2. SAVE GUEST HISTORY (NEW FIX)
-                        if st.session_state.get('last_result'):
-                            try:
-                                res = st.session_state['last_result']
-                                requests.post(f"{BACKEND_URL}/save_history", json={
-                                    "username": data['username'],
-                                    "term": res['term'],
-                                    "category": res['category'],
-                                    "explanation": res['explanation'],
-                                    "extra_content": res['extra_content'],
-                                    "complexity_used": res.get('complexity', 'Basic'),
-                                    "related_terms": res['related_terms']
-                                })
-                            except:
-                                pass # Silent fail if history save has issues
-
-                        st.session_state['page'] = "Home"
-                        st.success("Logged in successfully! History & Preferences saved.")
+                        st.session_state['role'] = data.get('role', 'user')
+                        if st.session_state['role'] == "admin":
+                            st.session_state['page'] = "Admin Dashboard"
+                            st.success("Admin login successful!")
+                        else:
+                            # 1. Save Preference
+                            st.session_state['complexity_pref'] = guest_pref_to_save
+                            update_pref_in_db() 
+                            # 2. SAVE GUEST HISTORY (NEW FIX)
+                            if st.session_state.get('last_result'):
+                                try:
+                                    res = st.session_state['last_result']
+                                    requests.post(f"{BACKEND_URL}/save_history", json={
+                                        "username": data['username'],
+                                        "term": res['term'],
+                                        "category": res['category'],
+                                        "explanation": res['explanation'],
+                                        "extra_content": res['extra_content'],
+                                        "complexity_used": res.get('complexity', 'Basic'),
+                                        "related_terms": res['related_terms']
+                                    })
+                                except:
+                                    pass # Silent fail if history save has issues
+                            st.session_state['page'] = "Home"
+                            st.success("Logged in successfully! History & Preferences saved.")
                         time.sleep(1)
                         st.rerun()
                     else:
